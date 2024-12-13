@@ -1,0 +1,24 @@
+Instructions:
+1)unzip "candidate_challenge.zip" -d project_folder (or manually and place it into project_folder)
+2)cd project_folder
+3)docker build -t my-ml-task . 
+4)docker run -it --rm my-ml-task
+
+This will train the models and print the results of step 1 which is the CatBoost model with 86 R2 score and step 2 
+which is the Multimodal Neural Network with 100 R2
+
+- For EDA and Insights and details on step 1, see insights.ipynb and step1.ipynb
+
+- For step 2 of the Docker project, I focused on training the multimodal model with careful initialization of each layer 
+according to best practices, including separate initialization and learning rate and dimensions for CNN, GRU, and MLP components. 
+I chose GRU for the text branch to handle the short sequence length efficiently. 
+I chose a word level tokenization to capture high level information.
+I separated the learning rates for different components of the model to optimize performance and stability. 
+Throughout training, I tracked both gradients and weights, applying gradient clipping to prevent exploding gradients and 
+to ensure training remained stable. This helped avoid issues like CNN weights going to zero, ensuring proper learning 
+across the network.
+
+- I also tried pretrained BERT embeddings and Resnet18 features combined with the tabular data and trained it with an MLP.
+This was too computationally expensive and not so good to showcase my deeplearning skills as it would be trained with only an MLP. 
+I chose to train a vanilla multimodal CNN + GRU + MLP model in the end and tuned it to get the best performance in a single 
+epoch for your timewise convenience. 
