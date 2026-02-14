@@ -53,13 +53,6 @@ Given a dataset of spacecraft candidates with ~40 tabular features, free-text de
 | **CatBoost baseline** | Establishes that tabular features alone reach R² ≈ 0.86, clearly motivating the multimodal approach. |
 | **1 epoch training** | The model converges in a single epoch, demonstrating that the architecture and initialization are well-tuned rather than relying on many passes over the data. |
 
-## What I'd Do Differently Today
-
-- Use a **learning rate scheduler** (e.g. OneCycleLR) instead of fixed per-branch LRs
-- Replace the word-level tokenizer with **character n-grams or a small SentencePiece model** for better OOV handling
-- Add a **validation split with early stopping** rather than training for a fixed number of epochs
-- Experiment with **cross-attention** between modalities instead of late concatenation
-
 ## Project Structure
 
 ```
@@ -89,3 +82,4 @@ python run.py
 ```
 
 Note: Both methods require `candidates_data.csv` and the `spacecraft_images/` directory in the project root.
+
