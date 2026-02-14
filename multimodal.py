@@ -6,17 +6,15 @@ from sklearn.metrics import r2_score
 import torch
 import os
 import torch.nn as nn
-from torch.utils.data import Dataset
-#from PIL import Image
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from torchvision.io import read_image
 from collections import Counter, OrderedDict
-from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 import torch.nn.init as init
 import random
 import warnings
-from torchvision import transforms
-from torchvision.io import read_image
+
 # Suppress only UserWarnings
 warnings.filterwarnings("ignore", category=UserWarning)
 pd.set_option('display.max_rows', 20)
@@ -52,7 +50,7 @@ class MultimodalDataset(Dataset):
         self.descriptions = dataframe['description']  # Save the descriptions separately for tokenization
         self.desc_2_path = desc_2_path
         self.image_dir = image_dir
-        self.vocab = vocab 
+        self.vocab = vocab
         self.max_len = max_len
         self.vocab_size = 93
 
@@ -63,7 +61,7 @@ class MultimodalDataset(Dataset):
         # Tabular data
         tabular_data = torch.tensor(self.dataframe.iloc[idx].values, dtype=torch.float)
 
-        # Text data 
+        # Text data
         description = self.descriptions.iloc[idx].lower().split()  # Split text into words
         text_data = [self.vocab[word] if word in self.vocab else self.vocab['<unk>'] for word in description]
         text_data = text_data[:self.max_len]  # Truncate to max_len
@@ -76,22 +74,16 @@ class MultimodalDataset(Dataset):
 
         image_path = os.path.join(self.image_dir, image_filename)
         image = transforms.ToPILImage()(read_image(image_path)).convert("RGB")
-        #image = Image.open(image_path).convert('RGB')
 
         # Default image resizing and normalization for a simple CNN
-        image = transforms.Resize((64, 64))(image) 
+        image = transforms.Resize((64, 64))(image)
         image = transforms.ToTensor()(image)
         image = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])(image)
 
-        target = torch.tensor(self.dataframe.iloc[idx]['target'], dtype=torch.float) 
+        target = torch.tensor(self.dataframe.iloc[idx]['target'], dtype=torch.float)
 
         return {'tabular': tabular_data,'text': text_data,'image': image,'target': target}
 
-import torch
-import torch.nn as nn
-
-import torch
-import torch.nn as nn
 
 class MultimodalModel(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, cnn_out_dim, tabular_input_dim, tabular_hidden_dim, nonlinearity='relu'):
@@ -115,20 +107,20 @@ class MultimodalModel(nn.Module):
         self.rnn_layernorm = nn.LayerNorm(hidden_dim)
 
         # Image (CNN) branch
-        x = 8
+        base_channels = 8
         self.cnn = nn.Sequential(
-            nn.Conv2d(3, x, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(x),
-            nn.ReLU() if nonlinearity == 'relu' else nn.LeakyReLU(), 
+            nn.Conv2d(3, base_channels, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(base_channels),
+            nn.ReLU() if nonlinearity == 'relu' else nn.LeakyReLU(),
             nn.MaxPool2d(2, 2),
 
-            nn.Conv2d(x, 2 * x, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(2 * x),
+            nn.Conv2d(base_channels, 2 * base_channels, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(2 * base_channels),
             nn.ReLU() if nonlinearity == 'relu' else nn.LeakyReLU(),
             nn.MaxPool2d(2, 2),
 
             nn.Flatten(),
-            nn.Linear(2 * x * 64 // 4 * 64 // 4, cnn_out_dim),
+            nn.Linear(2 * base_channels * 64 // 4 * 64 // 4, cnn_out_dim),
             nn.ReLU() if nonlinearity == 'relu' else nn.LeakyReLU(),
         )
 
@@ -139,7 +131,7 @@ class MultimodalModel(nn.Module):
         )
 
         # Fusion layer
-        fusion_input_dim =  tabular_hidden_dim + cnn_out_dim + hidden_dim  
+        fusion_input_dim =  tabular_hidden_dim + cnn_out_dim + hidden_dim
         self.fusion_layer = nn.Sequential(
             nn.Linear(fusion_input_dim, 4),
             nn.ReLU() if nonlinearity == 'relu' else nn.LeakyReLU(),
@@ -150,7 +142,7 @@ class MultimodalModel(nn.Module):
 
     def _initialize_weights(self):
         """
-        Proper initialization of the weights for convolutional layers, linear layers, 
+        Proper initialization of the weights for convolutional layers, linear layers,
         batch normalization layers, and embeddings in the network based on nonlinearity.
         """
         for m in self.modules():
@@ -158,16 +150,16 @@ class MultimodalModel(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity=self.nonlinearity)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            
+
             elif isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity=self.nonlinearity)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            
+
             elif isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-            
+
             elif isinstance(m, nn.Embedding):
                 nn.init.normal_(m.weight, mean=0, std=1)
 
@@ -185,7 +177,7 @@ class MultimodalModel(nn.Module):
         # Process text data through the RNN
         embedded_text = self.embedding(text_data)
         rnn_out, hn = self.rnn(embedded_text)
-        rnn_out = rnn_out[:, -1, :] #rnn_out.mean(axis=1)
+        rnn_out = rnn_out[:, -1, :]
         rnn_out = self.rnn_layernorm(rnn_out)
 
         # Process image data through the CNN
@@ -200,8 +192,6 @@ class MultimodalModel(nn.Module):
         output = self.fusion_layer(fused_output)
 
         return output
-
-
 
 
 def train_model(model, train_dataloader, test_dataloader, criterion, optimizer, device, num_epochs=10, verbose=False, track_grads=False):
@@ -232,7 +222,7 @@ def train_model(model, train_dataloader, test_dataloader, criterion, optimizer, 
                 grad_norms_before_clipping, weights_before_clipping = compute_grad_norm_and_weights(model, track_weights=True)
                 print(f"\nEpoch {epoch}, Grad Norms Before Clipping: {grad_norms_before_clipping}")
             # Clip gradients here
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=100) 
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=100)
 
             if track_grads:
                 grad_norms_after_clipping, weights_after_clipping = compute_grad_norm_and_weights(model, track_weights=True)
@@ -252,13 +242,13 @@ def train_model(model, train_dataloader, test_dataloader, criterion, optimizer, 
                 print(f"Epoch [{epoch+1}/{num_epochs}] - {percent_complete:.2f}% complete")
                 train_r2 = r2_score(all_targets, all_predictions)
                 train_rmse = root_mean_squared_error(all_targets, all_predictions)
-                print(f"For training batches seen so far in this epoch, R²: {train_r2:.4f}, RMSE: {train_rmse:.4f}")  
+                print(f"For training batches seen so far in this epoch, R²: {train_r2:.4f}, RMSE: {train_rmse:.4f}")
 
 
 
         # Compute R² score for training data
         train_r2 = r2_score(all_targets, all_predictions)
-        print(f"Epoch [{epoch+1}/{num_epochs}], Training R²: {train_r2:.4f}, Training RMSE: {(running_loss / total_batches)**0.5:.4f}")  
+        print(f"Epoch [{epoch+1}/{num_epochs}], Training R²: {train_r2:.4f}, Training RMSE: {(running_loss / total_batches)**0.5:.4f}")
 
         # Test Evaluation Phase
         model.eval()  # Set the model to evaluation mode
@@ -286,7 +276,7 @@ def train_model(model, train_dataloader, test_dataloader, criterion, optimizer, 
 
             # Compute R² score for test data
             test_r2 = r2_score(all_test_targets, all_test_predictions)
-            print(f"Epoch [{epoch+1}/{num_epochs}], Test R²: {test_r2:.4f}, Test RMSE: {(test_loss/len(test_dataloader))**0.5:.4f}")  # Corrected RMSE
+            print(f"Epoch [{epoch+1}/{num_epochs}], Test R²: {test_r2:.4f}, Test RMSE: {(test_loss/len(test_dataloader))**0.5:.4f}")
 
     print("Training complete.")
     return model
@@ -295,11 +285,11 @@ def train_model(model, train_dataloader, test_dataloader, criterion, optimizer, 
 def build_vocab(descriptions, min_freq=1):
     """
     Builds a vocabulary from the text descriptions without using torchtext.
-    
+
     Args:
         descriptions (pd.Series): A Pandas Series containing the text descriptions.
         min_freq (int): Minimum frequency for a word to be included in the vocabulary.
-    
+
     Returns:
         vocab_dict (dict): A dictionary mapping words to indices.
         index_to_word (dict): A dictionary mapping indices to words (for reverse lookup).
@@ -312,7 +302,7 @@ def build_vocab(descriptions, min_freq=1):
     counter = Counter([word for desc in tokenized_descriptions for word in desc])
 
     # Filter words by frequency and sort by frequency
-    sorted_by_freq = sorted([(word, freq) for word, freq in counter.items() if freq >= min_freq], 
+    sorted_by_freq = sorted([(word, freq) for word, freq in counter.items() if freq >= min_freq],
                             key=lambda x: x[1], reverse=True)
 
     # Create an OrderedDict to maintain the order
@@ -334,114 +324,113 @@ def build_vocab(descriptions, min_freq=1):
     return vocab_dict, index_to_word, unk_index
 
 
-# Path to the spacecraft_images directory
-image_dir = "spacecraft_images"
+if __name__ == "__main__":
+    # Path to the spacecraft_images directory
+    image_dir = "spacecraft_images"
 
-# Path to the candidates_data.csv file
-file = "candidates_data.csv"
+    # Path to the candidates_data.csv file
+    file = "candidates_data.csv"
 
-df = pd.read_csv(file)
-# Converting feature_1 and 2 to integers  
-df["feature_1"] = df["feature_1"].str.split("_").str[1].astype(int)
-df["feature_2"] = df["feature_2"].str.split("_").str[1].astype(int)
+    df = pd.read_csv(file)
+    # Converting feature_1 and 2 to integers
+    df["feature_1"] = df["feature_1"].str.split("_").str[1].astype(int)
+    df["feature_2"] = df["feature_2"].str.split("_").str[1].astype(int)
 
-# Remove columns that consist of -5 and -2 
-df = replace_special_values(df, epsilon=0.001, if_keep_bool=False)
+    # Remove columns that consist of -5 and -2
+    df = replace_special_values(df, epsilon=0.001, if_keep_bool=False)
 
-# Drop missing features
-print(f"Dropping columns with more than {20}% missing values")
-df = df.drop(columns=df.columns[df.isnull().mean() > 0.01])
+    # Drop missing features
+    missing_threshold = 0.01
+    print(f"Dropping columns with more than {missing_threshold*100}% missing values")
+    df = df.drop(columns=df.columns[df.isnull().mean() > missing_threshold])
 
-# Heuristically classify columns as numeric vs. categoric
-column_classifications = classify_columns(df)
-column_classifications["description"] = "Categorical"
-cat_cols = [k for k,v in column_classifications.items() if v == "Categorical"]
-num_cols = [k for k,v in column_classifications.items() if (v == "Numerical") and (k!="target")]
+    # Heuristically classify columns as numeric vs. categoric
+    column_classifications = classify_columns(df)
+    column_classifications["description"] = "Categorical"
+    cat_cols = [k for k,v in column_classifications.items() if v == "Categorical"]
+    num_cols = [k for k,v in column_classifications.items() if (v == "Numerical") and (k!="target")]
 
-# Impute 
-df = impute_data(df, num_cols=num_cols, cat_cols=cat_cols)
+    # Impute
+    df = impute_data(df, num_cols=num_cols, cat_cols=cat_cols)
 
-# Convert object columns to category 
-object_columns = df.select_dtypes(include='object').columns
-object_columns = object_columns[object_columns != 'description']
-for col in object_columns:
-    df[col] = df[col].astype('category').cat.codes
+    # Convert object columns to category
+    object_columns = df.select_dtypes(include='object').columns
+    object_columns = object_columns[object_columns != 'description']
+    for col in object_columns:
+        df[col] = df[col].astype('category').cat.codes
 
-# Dict to map descriptions with image dirs
-desc_2_path = dict(zip(list(df["description"].sort_values().unique()),sorted([file_name for file_name in os.listdir(image_dir)])))
+    # Dict to map descriptions with image dirs
+    desc_2_path = dict(zip(list(df["description"].sort_values().unique()),sorted([file_name for file_name in os.listdir(image_dir)])))
 
-#df = df.sample(frac=1, random_state=42)
+    print(df.shape)
 
+    # Split the data into train and test sets
+    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 
-print(df.shape)
+    # Store the 'description' column separately and drop it from both sets
+    train_descriptions = train_df.pop('description')
+    test_descriptions = test_df.pop('description')
 
-# Split the data into train and test sets
-train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+    # Separate the target column
+    y_train = train_df.pop('target')
+    y_test = test_df.pop('target')
 
-# Store the 'description' column separately and drop it from both sets
-train_descriptions = train_df.pop('description')
-test_descriptions = test_df.pop('description')
+    # Initialize and fit the StandardScaler
+    scaler = StandardScaler()
+    train_df_scaled = pd.DataFrame(scaler.fit_transform(train_df), columns=train_df.columns, index=train_df.index)
+    test_df_scaled = pd.DataFrame(scaler.transform(test_df), columns=test_df.columns, index=test_df.index)
 
-# Separate the target column
-y_train = train_df.pop('target')
-y_test = test_df.pop('target')
+    # Reattach 'description' and 'target' columns to the scaled data
+    train_df_scaled['description'] = train_descriptions
+    train_df_scaled['target'] = y_train
+    test_df_scaled['description'] = test_descriptions
+    test_df_scaled['target'] = y_test
 
-# Initialize and fit the StandardScaler
-scaler = StandardScaler()
-train_df_scaled = pd.DataFrame(scaler.fit_transform(train_df), columns=train_df.columns, index=train_df.index)
-test_df_scaled = pd.DataFrame(scaler.transform(test_df), columns=test_df.columns, index=test_df.index)
-
-# Reattach 'description' and 'target' columns to the scaled data
-train_df_scaled['description'] = train_descriptions
-train_df_scaled['target'] = y_train
-test_df_scaled['description'] = test_descriptions
-test_df_scaled['target'] = y_test
-
-# Build Vocab
-descriptions = train_df_scaled['description']  
-vocab_obj, index_to_word, unk_index = build_vocab(descriptions, min_freq=1)
-# Dataloaders
-train_dataset = MultimodalDataset(dataframe=train_df_scaled, 
-                                  desc_2_path=desc_2_path, 
-                                  image_dir=image_dir, 
-                                  vocab=vocab_obj,
-                                  max_len=5)
-test_dataset = MultimodalDataset(dataframe=test_df_scaled, 
-                                  desc_2_path=desc_2_path, 
-                                  image_dir=image_dir, 
-                                  vocab=vocab_obj,
-                                  max_len=5)
+    # Build Vocab
+    descriptions = train_df_scaled['description']
+    vocab_obj, index_to_word, unk_index = build_vocab(descriptions, min_freq=1)
+    # Dataloaders
+    train_dataset = MultimodalDataset(dataframe=train_df_scaled,
+                                      desc_2_path=desc_2_path,
+                                      image_dir=image_dir,
+                                      vocab=vocab_obj,
+                                      max_len=5)
+    test_dataset = MultimodalDataset(dataframe=test_df_scaled,
+                                      desc_2_path=desc_2_path,
+                                      image_dir=image_dir,
+                                      vocab=vocab_obj,
+                                      max_len=5)
 
 
-train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
-test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True)
 
-# Training 
-vocab_size = len(vocab_obj)  # Vocabulary size from the built vocab
-embedding_dim = 1 
-hidden_dim = 3 
-cnn_out_dim = 20 
-tabular_input_dim = train_dataset[0]['tabular'].shape[0] 
-tabular_hidden_dim = 20 
+    # Training
+    vocab_size = len(vocab_obj)  # Vocabulary size from the built vocab
+    embedding_dim = 1
+    hidden_dim = 3
+    cnn_out_dim = 20
+    tabular_input_dim = train_dataset[0]['tabular'].shape[0]
+    tabular_hidden_dim = 20
 
-model = MultimodalModel(vocab_size, embedding_dim, hidden_dim, cnn_out_dim, 
-                        tabular_input_dim, tabular_hidden_dim, nonlinearity="leaky_relu")
+    model = MultimodalModel(vocab_size, embedding_dim, hidden_dim, cnn_out_dim,
+                            tabular_input_dim, tabular_hidden_dim, nonlinearity="leaky_relu")
 
-# Print the number of trainable parameters in the multimodal model
-print(f"Total number of trainable parameters: {count_parameters(model)}")
-# Move the model to GPU if available
-device = "cpu"
-model = model.to(device)
+    # Print the number of trainable parameters in the multimodal model
+    print(f"Total number of trainable parameters: {count_parameters(model)}")
+    # Move the model to GPU if available
+    device = "cpu"
+    model = model.to(device)
 
-# Loss function and optimizer
-criterion = nn.MSELoss()  # Mean Squared Error for regression
-optimizer = torch.optim.Adam([
-    {'params': model.cnn.parameters(), 'lr': 0.1},
-    {'params': model.rnn.parameters(), 'lr': 1e-5},
-    {'params': model.tabular_mlp.parameters(), 'lr': 0.001},  
-], lr=0.001)  # Also slightly increase weight decay
+    # Loss function and optimizer
+    criterion = nn.MSELoss()  # Mean Squared Error for regression
+    optimizer = torch.optim.Adam([
+        {'params': model.cnn.parameters(), 'lr': 0.1},
+        {'params': model.rnn.parameters(), 'lr': 1e-5},
+        {'params': model.tabular_mlp.parameters(), 'lr': 0.001},
+    ], lr=0.001)
 
-print("Starting training the MultiModalModel")
-# Training - Takes an hour on my laptop GPU
-trained_model = train_model(model, train_loader, test_loader, criterion, optimizer, 
-                            device, num_epochs=1, verbose=True, track_grads=False)
+    print("Starting training the MultiModalModel")
+    # Training - Takes an hour on my laptop GPU
+    trained_model = train_model(model, train_loader, test_loader, criterion, optimizer,
+                                device, num_epochs=1, verbose=True, track_grads=False)

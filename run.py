@@ -1,7 +1,7 @@
 import subprocess
-# Run step1.py
-print("Running step1")
-subprocess.run(["python3", "step1.py"])
-# Run step2.py
-print("Running step2")
-subprocess.run(["python3", "step2.py"])
+# Run tabular.py
+print("Running tabular baseline (CatBoost)")
+subprocess.run(["python3", "tabular.py"])
+# Run multimodal.py
+print("Running multimodal model (CNN + GRU + MLP)")
+subprocess.run(["python3", "multimodal.py"])

@@ -3,9 +3,7 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 import pandas as pd
 from sklearn.impute import SimpleImputer
-#from sklearn.preprocessing import TargetEncoder
 from sklearn.metrics import mean_squared_error
-import torch.nn as nn
 
 def root_mean_squared_error(y_true, y_pred):
     mse = mean_squared_error(y_true, y_pred)
@@ -160,17 +158,6 @@ def visualize_special_values(df, sample_size=100):
 
     # Show plot
     plt.show()
-
-def init_weights(m):
-    if isinstance(m, nn.Linear):
-        nn.init.xavier_uniform_(m.weight)  # For tanh/relu activations
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-
-def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
 
 def compute_grad_norm_and_weights(model, track_biases=False, track_weights=False):
     grad_norms = {}
